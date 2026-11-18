@@ -1,0 +1,49 @@
+name: Build High-Speed HCI UART Firmware (251 DLE + 2M PHY)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies and nrfutil
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git cmake ninja-build gperf ccache dfu-util device-tree-compiler wget python3-dev python3-pip python3-setuptools python3-tk python3-wheel xz-utils file make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
+          pip3 install --U pip
+          pip3 install west nrfutil
+
+      - name: Initialize Zephyr workspace
+        run: |
+          west init -m https://github.com/zephyrproject-rtos/zephyr --mr v3.7.0 zephyrproject
+          cd zephyrproject
+          west update narrow -o=--depth=1 || west update
+
+      - name: Install Zephyr SDK
+        run: |
+          cd zephyrproject/zephyr
+          west sdk install --toolchains arm-zephyr-eabi
+
+      - name: Build nRF52840 Dongle HCI UART with 251 DLE & 8 Connections
+        run: |
+          cd zephyrproject
+          cp "$GITHUB_WORKSPACE/prj_highspeed.conf" zephyr/samples/bluetooth/hci_uart/prj_highspeed.conf
+          west build -b nrf52840dongle/nrf52840 zephyr/samples/bluetooth/hci_uart -- -DOVERLAY_CONFIG=prj_highspeed.conf
+
+      - name: Package DFU ZIP for nRF52840 Dongle
+        run: |
+          nrfutil pkg generate             --hw-version 52             --sd-req=0x00             --application zephyrproject/build/zephyr/zephyr.hex             --application-version 2             nrf52840dongle_bluetooth_hci_uart.zip
+          cp zephyrproject/build/zephyr/zephyr.hex zephyr_hci_uart_highspeed.hex
+
+      - name: Upload Built Firmware Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nrf52840dongle_hci_uart_highspeed
+          path: |
+            nrf52840dongle_bluetooth_hci_uart.zip
+            zephyr_hci_uart_highspeed.hex
